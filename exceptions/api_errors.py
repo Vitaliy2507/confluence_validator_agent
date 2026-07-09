@@ -22,3 +22,9 @@ class ConfluenceAPIError(APIError):
 
 class GigaChatAPIError(APIError):
     """Raised when a GigaChat completion request fails after all retries."""
+
+
+class GigaChatAuthError(GigaChatAPIError):
+    """Raised when the GigaChat OAuth token endpoint fails (bad
+    client_id/client_secret, network error, malformed token response).
+    """

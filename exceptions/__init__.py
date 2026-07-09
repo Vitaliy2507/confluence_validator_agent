@@ -4,6 +4,7 @@ from exceptions.api_errors import (
     APIError,
     ConfluenceAPIError,
     GigaChatAPIError,
+    GigaChatAuthError,
 )
 from exceptions.validation_errors import (
     TemplateLoadError,
@@ -14,6 +15,7 @@ __all__ = [
     "APIError",
     "ConfluenceAPIError",
     "GigaChatAPIError",
+    "GigaChatAuthError",
     "TemplateLoadError",
     "ValidationFailedError",
 ]

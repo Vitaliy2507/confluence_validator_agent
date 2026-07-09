@@ -26,13 +26,24 @@ class ConfluenceSettings:
 
 @dataclass(frozen=True)
 class GigaChatSettings:
-    """Connection settings and generation parameters for GigaChat."""
+    """Connection settings and generation parameters for GigaChat.
+
+    Authentication uses the OAuth2 client-credentials flow: ``client_id`` /
+    ``client_secret`` are exchanged for a short-lived ``access_token`` at
+    ``auth_url``; the token is cached and refreshed automatically by
+    :class:`clients.gigachat_auth.GigaChatTokenManager` — nothing here is a
+    long-lived static token that needs to be pasted in by hand.
+    """
 
     url: str
-    token: str
+    auth_url: str
+    client_id: str
+    client_secret: str
+    scope: str
     model: str
     temperature: float = 0.1
     max_tokens: int = 3000
+    verify_ssl: bool = True
 
 
 @dataclass(frozen=True)
@@ -170,11 +181,15 @@ def get_settings() -> Settings:
         user=_env("CONFLUENCE_USER"),
     )
     gigachat = GigaChatSettings(
-        url=_env("GIGACHAT_URL"),
-        token=_env("GIGACHAT_TOKEN"),
+        url=_env("GIGACHAT_URL", "https://gigachat.devices.sberbank.ru/api/v1"),
+        auth_url=_env("GIGACHAT_AUTH_URL", "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"),
+        client_id=_env("GIGACHAT_CLIENT_ID"),
+        client_secret=_env("GIGACHAT_CLIENT_SECRET"),
+        scope=_env("GIGACHAT_SCOPE", "GIGACHAT_API_PERS"),
         model=_env("GIGACHAT_MODEL", "GigaChat"),
         temperature=0.1,
         max_tokens=3000,
+        verify_ssl=_env("GIGACHAT_VERIFY_SSL", "true").strip().lower() not in ("0", "false", "no"),
     )
     template = TemplateSettings(
         page_id=_env("TEMPLATE_PAGE_ID"),

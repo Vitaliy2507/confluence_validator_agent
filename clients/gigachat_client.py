@@ -1,9 +1,17 @@
-"""Thin client around the GigaChat chat-completions endpoint."""
+"""Thin client around the GigaChat chat-completions endpoint.
+
+Authentication is handled transparently by :class:`GigaChatTokenManager`:
+the client never holds a static bearer token — it asks the token manager
+for a currently-valid one on every call, and the manager refreshes it in
+the background (ahead of expiry, or reactively on a 401) using the
+configured ``client_id`` / ``client_secret``.
+"""
 
 from __future__ import annotations
 
 import requests
 
+from clients.gigachat_auth import GigaChatTokenManager
 from config.settings import GigaChatSettings, RetrySettings
 from exceptions.api_errors import GigaChatAPIError
 from utils.logger import get_logger
@@ -15,16 +23,25 @@ logger = get_logger(__name__)
 class GigaChatClient:
     """Wraps ``POST /api/v1/chat/completions`` for GigaChat."""
 
-    def __init__(self, settings: GigaChatSettings, retry: RetrySettings) -> None:
+    def __init__(
+        self,
+        settings: GigaChatSettings,
+        retry: RetrySettings,
+        token_manager: GigaChatTokenManager | None = None,
+    ) -> None:
         """Initialize the client.
 
         Args:
             settings: GigaChat connection settings and generation params.
             retry: Retry/backoff configuration applied to requests.
+            token_manager: Optional pre-built token manager (mainly for
+                tests); a new one is created from ``settings``/``retry`` if
+                omitted.
         """
         self._settings = settings
         self._retry = retry
         self._session = requests.Session()
+        self._token_manager = token_manager or GigaChatTokenManager(settings, retry)
 
     def chat(self, system_prompt: str, user_prompt: str) -> str:
         """Request a chat completion from GigaChat.
@@ -58,14 +75,17 @@ class GigaChatClient:
             "temperature": self._settings.temperature,
             "max_tokens": self._settings.max_tokens,
         }
-        headers = {
-            "Authorization": f"Bearer {self._settings.token}",
-            "Content-Type": "application/json",
-        }
-        try:
-            response = self._session.post(url, json=payload, headers=headers, timeout=60)
-        except requests.RequestException as exc:
-            raise GigaChatAPIError(f"Network error calling GigaChat: {exc}") from exc
+
+        token = self._token_manager.get_token()
+        response = self._post(url, payload, token)
+
+        if response.status_code == 401:
+            # Cached token was rejected (expired early / revoked) — force a
+            # fresh one and retry exactly once before giving up to the
+            # outer retry_with_backoff wrapper.
+            logger.warning("GigaChat returned 401; forcing token refresh and retrying once.")
+            token = self._token_manager.get_token(force_refresh=True)
+            response = self._post(url, payload, token)
 
         if not response.ok:
             raise GigaChatAPIError(
@@ -81,3 +101,19 @@ class GigaChatClient:
 
         logger.info("GigaChat completion received (%d chars)", len(content))
         return content
+
+    def _post(self, url: str, payload: dict, token: str) -> requests.Response:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            return self._session.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=60,
+                verify=self._settings.verify_ssl,
+            )
+        except requests.RequestException as exc:
+            raise GigaChatAPIError(f"Network error calling GigaChat: {exc}") from exc
