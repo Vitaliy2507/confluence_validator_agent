@@ -1,10 +1,11 @@
 """Parse the Confluence template page into a list of :class:`TemplateRule`.
 
-The template page marks each section with a line such as "Требование к
-ведению - обязательно" or "Требование к ведению - опционально" near the
-heading. This module derives the mandatory/optional rule set generically
-from that pattern, using only the sections already split out by
-``parsers.html_parser``.
+The template page marks each section's requirement level near its heading
+— sometimes as the full phrase "Требование к ведению - обязательно",
+sometimes as a short standalone label/badge (e.g. a colored Confluence
+"status" macro reading just "ОБЯЗАТЕЛЬНО" or "Опционально" right after the
+heading). This module recognizes both forms, using only the sections
+already split out by ``parsers.html_parser``.
 
 Default policy: a section is only mandatory if the template page
 *explicitly* says so. Anything ambiguous (marker missing, misspelled,
@@ -36,8 +37,22 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_REQUIRED_PATTERN = re.compile(r"требование к ведению\s*-\s*обязательно")
-_OPTIONAL_PATTERN = re.compile(r"требование к ведению\s*-\s*опционально")
+# Full-phrase form: "Требование к ведению - обязательно/опционально".
+_REQUIRED_PHRASE_PATTERN = re.compile(r"требование к ведению\s*-\s*обязательно")
+_OPTIONAL_PHRASE_PATTERN = re.compile(r"требование к ведению\s*-\s*опционально")
+
+# Short badge/label form: just the word itself (e.g. a Confluence "status"
+# macro rendered right after the heading, no surrounding sentence). Only
+# checked within the first _LABEL_WINDOW_CHARS of the section's content,
+# since that's where a heading-adjacent label lives — searching the whole
+# section body would risk matching the word "обязательно" used in
+# unrelated prose further down the page.
+# The negative lookbehind guards against "не обязательно" being read as a
+# positive marker.
+_REQUIRED_WORD_PATTERN = re.compile(r"(?<!не )\bобязательно\b")
+_OPTIONAL_WORD_PATTERN = re.compile(r"\bопционально\b")
+_LABEL_WINDOW_CHARS = 200
+
 _ID_PATTERN = re.compile(r"^\s*(\d+(?:\.\d+)*)")
 
 # Only headings numbered "N" or "N.M" (at most one dot) are treated as
@@ -63,6 +78,42 @@ def _extract_keywords(header: str, section_id: str | None) -> list[str]:
     if section_id:
         keywords.append(section_id)
     return keywords
+
+
+def _detect_required(normalized_content: str, header: str) -> bool:
+    """Determine whether a section's content marks it as mandatory.
+
+    Recognizes both the full "Требование к ведению - обязательно" phrase
+    (searched across the whole section) and a short standalone
+    "обязательно"/"опционально" label/badge (searched only in the text
+    immediately following the heading, to avoid false positives from the
+    word appearing later in unrelated prose).
+
+    Args:
+        normalized_content: Lowercased, whitespace-normalized section text.
+        header: Original heading text, used only for debug logging.
+
+    Returns:
+        True if the section is explicitly marked mandatory, False
+        otherwise (the safe default — see module docstring).
+    """
+    if _REQUIRED_PHRASE_PATTERN.search(normalized_content):
+        return True
+    if _OPTIONAL_PHRASE_PATTERN.search(normalized_content):
+        return False
+
+    label_window = normalized_content[:_LABEL_WINDOW_CHARS]
+    if _REQUIRED_WORD_PATTERN.search(label_window):
+        return True
+    if _OPTIONAL_WORD_PATTERN.search(label_window):
+        return False
+
+    logger.debug(
+        'No "обязательно/опционально" marker found for template section '
+        '"%s"; defaulting to optional.',
+        header.strip(),
+    )
+    return False
 
 
 def parse_template_sections(sections: list[Section]) -> list[TemplateRule]:
@@ -114,20 +165,7 @@ def parse_template_sections(sections: list[Section]) -> list[TemplateRule]:
             continue
 
         normalized_content = normalize(section.content)
-        if _REQUIRED_PATTERN.search(normalized_content):
-            required = True
-        else:
-            # Either explicitly "опционально", or no marker at all — both
-            # cases default to optional. We don't distinguish them here
-            # because an unrecognized marker should degrade safely, not
-            # silently become a hard requirement.
-            required = False
-            if not _OPTIONAL_PATTERN.search(normalized_content):
-                logger.debug(
-                    'No "обязательно/опционально" marker found for template '
-                    'section "%s"; defaulting to optional.',
-                    section.header.strip(),
-                )
+        required = _detect_required(normalized_content, section.header)
 
         name = _ID_PATTERN.sub("", section.header).strip(" .-:") or section.header.strip()
 
