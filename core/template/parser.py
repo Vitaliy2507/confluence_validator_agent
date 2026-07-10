@@ -12,6 +12,18 @@ using different wording than expected) is treated as optional rather than
 mandatory — a false "optional" only produces a soft warning, while a
 false "mandatory" would fail real pages for reasons nobody could see
 coming. When in doubt, don't block.
+
+Only headings numbered like "N" or "N.M" (matching the template's own
+table of contents, e.g. "6.5 Функциональное требование") become checklist
+rules. Sections routinely embed an illustrative example under one of
+their sub-sections — e.g. 6.5 shows a worked example of *one* functional
+requirement, complete with its own "Запрос"/"Ответ"/"Статусная модель"
+sub-headings — to demonstrate how an author should structure their own
+content. Those example sub-headings are either unnumbered or numbered a
+level deeper (e.g. "6.5.1"); they document *how to fill in* section 6.5,
+they are not themselves separate checklist items, so they are treated as
+descriptive content of their parent section rather than turned into
+phantom rules of their own.
 """
 
 from __future__ import annotations
@@ -27,6 +39,12 @@ logger = get_logger(__name__)
 _REQUIRED_PATTERN = re.compile(r"требование к ведению\s*-\s*обязательно")
 _OPTIONAL_PATTERN = re.compile(r"требование к ведению\s*-\s*опционально")
 _ID_PATTERN = re.compile(r"^\s*(\d+(?:\.\d+)*)")
+
+# Only headings numbered "N" or "N.M" (at most one dot) are treated as
+# checklist items. Deeper numbering (e.g. "6.5.1") or headings with no
+# leading number at all are example/descriptive content nested inside a
+# real section, not sections of their own.
+_MAX_RULE_DEPTH = 2
 
 
 def _extract_keywords(header: str, section_id: str | None) -> list[str]:
@@ -55,12 +73,12 @@ def parse_template_sections(sections: list[Section]) -> list[TemplateRule]:
             for the raw HTML of the Confluence template page.
 
     Returns:
-        List of :class:`TemplateRule`, in document order. Every heading on
-        the template page becomes a rule; a section is marked ``required``
-        only when the page explicitly says "обязательно" for it. A
-        section explicitly marked "опционально", or with no marker at
-        all, becomes ``required=False`` — unmarked sections are never
-        upgraded to mandatory.
+        List of :class:`TemplateRule`, in document order. Only headings
+        numbered "N" or "N.M" become rules (see module docstring); a
+        section is marked ``required`` only when the page explicitly says
+        "обязательно" for it. A section explicitly marked "опционально",
+        or with no marker at all, becomes ``required=False`` — unmarked
+        sections are never upgraded to mandatory.
     """
     rules: list[TemplateRule] = []
     parent_by_level: dict[int, str] = {}
@@ -68,6 +86,31 @@ def parse_template_sections(sections: list[Section]) -> list[TemplateRule]:
 
     for section in sections:
         if not section.header or section.level == 0:
+            continue
+
+        id_match = _ID_PATTERN.match(section.header.strip())
+        section_id = id_match.group(1) if id_match else None
+
+        if section_id is None:
+            # No "N"/"N.M" numbering at all — descriptive/example content
+            # nested inside a real checklist section, not a section of
+            # its own. Skip, but don't touch parent_by_level: it isn't a
+            # heading level that ever becomes a parent for anything else.
+            logger.debug(
+                'Skipping unnumbered heading "%s" — treated as example '
+                "content, not a checklist section.",
+                section.header.strip(),
+            )
+            continue
+
+        depth = section_id.count(".") + 1
+        if depth > _MAX_RULE_DEPTH:
+            logger.debug(
+                'Skipping "%s" (numbered %s) — deeper than the template\'s '
+                "own N.M outline, treated as example content.",
+                section.header.strip(),
+                section_id,
+            )
             continue
 
         normalized_content = normalize(section.content)
@@ -86,8 +129,6 @@ def parse_template_sections(sections: list[Section]) -> list[TemplateRule]:
                     section.header.strip(),
                 )
 
-        id_match = _ID_PATTERN.match(section.header.strip())
-        section_id = id_match.group(1) if id_match else None
         name = _ID_PATTERN.sub("", section.header).strip(" .-:") or section.header.strip()
 
         parent = parent_by_level.get(section.level - 1)
