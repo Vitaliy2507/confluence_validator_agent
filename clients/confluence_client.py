@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import requests
 
 from config.settings import ConfluenceSettings, RetrySettings
@@ -25,10 +27,18 @@ class ConfluenceClient:
             settings: Confluence connection settings (url, token, user).
             retry: Retry/backoff configuration applied to all requests.
         """
+        self.verify_ssl = os.getenv("CONFLUENCE_VERIFY_SSL", "true").lower() == "true"
         self._settings = settings
         self._retry = retry
         self._session = requests.Session()
-        self._session.auth = (settings.user, settings.token)
+        self._session.headers.update({
+            "Authorization": f"Bearer {settings.token}",
+            "Accept": "application/json"
+        })        
+        self._session.verify = self.verify_ssl
+        if not self.verify_ssl:
+            import urllib3
+            urllib3.disable_warnings()
 
     def get_page(self, page_id: str) -> Page:
         """Fetch a Confluence page including its storage-format body.
@@ -89,23 +99,27 @@ class ConfluenceClient:
         post(page_id, markdown_comment)
 
     def _post_comment_once(self, page_id: str, markdown_comment: str) -> None:
-        url = f"{self._settings.url.rstrip('/')}/rest/api/content/{page_id}/child/comment"
+        url = f"{self._settings.url.rstrip('/')}/rest/api/content"
+        
         storage_value = self._markdown_to_storage(markdown_comment)
         payload = {
             "type": "comment",
+            "container": {
+                "id": page_id,
+                "type": "page"
+            },
             "body": {
                 "storage": {
                     "value": storage_value,
-                    "representation": "storage",
+                    "representation": "storage"
                 }
-            },
-            "container": {"id": page_id, "type": "page"},
+            }
         }
+        
         try:
             response = self._session.post(
                 url,
                 json=payload,
-                headers={"Content-Type": "application/json"},
                 timeout=30,
             )
         except requests.RequestException as exc:
@@ -171,8 +185,6 @@ class ConfluenceClient:
             else:
                 close_list()
                 # Bold: **text** -> <strong>text</strong>
-                import re
-
                 rendered = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", stripped)
                 html_lines.append(f"<p>{rendered}</p>")
 
