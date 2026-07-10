@@ -47,11 +47,14 @@ class Orchestrator:
             user_prompt_template=settings.gigachat_user_prompt_template,
         )
 
-    def run(self, page_id: str) -> str:
+    def run(self, page_id: str, refresh_template: bool = False) -> str:
         """Run the full pipeline for a single Confluence page.
 
         Args:
             page_id: Confluence content id to validate.
+            refresh_template: If True, force a fresh fetch + re-parse of
+                the Confluence template page instead of using the cached
+                rule set, even if the cache is still within its TTL.
 
         Returns:
             The final markdown report that was (or would be) posted as a
@@ -61,7 +64,7 @@ class Orchestrator:
         sections = parse_sections(page.raw_html)
 
         try:
-            rules = self._template_loader.load()
+            rules = self._template_loader.load(force_refresh=refresh_template)
         except TemplateLoadError as exc:
             logger.error("Cannot validate page %s: %s", page_id, exc)
             raise
