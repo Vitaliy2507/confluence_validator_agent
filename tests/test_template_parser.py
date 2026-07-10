@@ -53,6 +53,67 @@ class TemplateParserRequiredDefaultTests(unittest.TestCase):
         self.assertEqual(len(rules), 1)
         self.assertFalse(rules[0].required)
 
+    def test_unnumbered_heading_is_not_a_rule(self) -> None:
+        """Illustrative sub-headings without a number (e.g. "Запрос" inside
+        an example under 6.5) must not become checklist items.
+        """
+        sections = [
+            Section(
+                header="6.5 Функционально требование ХХХ",
+                level=2,
+                content="Требование к ведению - опционально",
+                raw_html="",
+            ),
+            Section(
+                header="Запрос",
+                level=3,
+                content="Пример запроса для топика.",
+                raw_html="",
+            ),
+        ]
+        rules = parse_template_sections(sections)
+        names = [r.name for r in rules]
+        self.assertIn("Функционально требование ХХХ", names)
+        self.assertNotIn("Запрос", names)
+
+    def test_deeply_numbered_heading_is_not_a_rule(self) -> None:
+        """Numbering deeper than "N.M" (e.g. "6.5.1") is an example
+        sub-step, not a top-level checklist section.
+        """
+        sections = [
+            Section(
+                header="6.5 Функционально требование ХХХ",
+                level=2,
+                content="Требование к ведению - опционально",
+                raw_html="",
+            ),
+            Section(
+                header="6.5.1 Создание нового топика",
+                level=3,
+                content="Пример.",
+                raw_html="",
+            ),
+        ]
+        rules = parse_template_sections(sections)
+        names = [r.name for r in rules]
+        self.assertIn("Функционально требование ХХХ", names)
+        self.assertNotIn("Создание нового топика", names)
+
+    def test_top_level_and_second_level_numbering_are_kept(self) -> None:
+        sections = [
+            Section(header="6. Функциональные требования", level=1, content="", raw_html=""),
+            Section(
+                header="6.1 Диаграмма последовательности",
+                level=2,
+                content="Требование к ведению - обязательно",
+                raw_html="",
+            ),
+        ]
+        rules = parse_template_sections(sections)
+        names = [r.name for r in rules]
+        self.assertIn("Функциональные требования", names)
+        self.assertIn("Диаграмма последовательности", names)
+
     def test_template_rule_dataclass_default_is_optional(self) -> None:
         rule = TemplateRule(name="Без явного required")
         self.assertFalse(rule.required)
