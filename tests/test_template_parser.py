@@ -114,6 +114,55 @@ class TemplateParserRequiredDefaultTests(unittest.TestCase):
         self.assertIn("Функциональные требования", names)
         self.assertIn("Диаграмма последовательности", names)
 
+    def test_short_required_label_is_required(self) -> None:
+        """Short badge-style label ('Обязательно' right after the heading,
+        no surrounding phrase) must also be recognized.
+        """
+        sections = [
+            Section(header="8. Метки", level=1, content="Обязательно", raw_html="")
+        ]
+        rules = parse_template_sections(sections)
+        self.assertEqual(len(rules), 1)
+        self.assertTrue(rules[0].required)
+
+    def test_short_optional_label_is_optional(self) -> None:
+        sections = [
+            Section(header="2. Связная документация", level=1, content="Опционально", raw_html="")
+        ]
+        rules = parse_template_sections(sections)
+        self.assertEqual(len(rules), 1)
+        self.assertFalse(rules[0].required)
+
+    def test_negated_required_word_does_not_count_as_required(self) -> None:
+        sections = [
+            Section(
+                header="8. Метки",
+                level=1,
+                content="Не обязательно для черновиков.",
+                raw_html="",
+            )
+        ]
+        rules = parse_template_sections(sections)
+        self.assertEqual(len(rules), 1)
+        self.assertFalse(rules[0].required)
+
+    def test_required_word_far_into_body_is_not_treated_as_marker(self) -> None:
+        """A mention of the word deep in unrelated prose (beyond the
+        heading-adjacent label window) must not flip requirement status.
+        """
+        padding = "текст " * 60  # pushes well past the label window
+        sections = [
+            Section(
+                header="8. Метки",
+                level=1,
+                content=f"{padding} где-то тут упоминается слово обязательно.",
+                raw_html="",
+            )
+        ]
+        rules = parse_template_sections(sections)
+        self.assertEqual(len(rules), 1)
+        self.assertFalse(rules[0].required)
+
     def test_template_rule_dataclass_default_is_optional(self) -> None:
         rule = TemplateRule(name="Без явного required")
         self.assertFalse(rule.required)
