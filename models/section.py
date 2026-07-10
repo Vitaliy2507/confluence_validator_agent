@@ -34,6 +34,12 @@ class TemplateRule:
         keywords: Lowercased keywords/aliases used to match this rule
             against headers found on a real page.
         required: Whether the section is mandatory ("обязательно").
+            Defaults to False (optional). A section only blocks
+            validation if it was *explicitly* marked required on the
+            template page or in the rules cache — the absence of a
+            marker must never be silently treated as a hard requirement,
+            since that would fail pages for reasons the author was never
+            told about.
         level: Expected heading level (1 = top level, 2 = sub-section).
         order: Position of the rule within the template, used for stable
             reporting order.
@@ -42,7 +48,7 @@ class TemplateRule:
 
     name: str
     keywords: list[str] = field(default_factory=list)
-    required: bool = True
+    required: bool = False
     level: int = 1
     order: int = 0
     parent: str | None = None
@@ -72,11 +78,17 @@ class TemplateRule:
 
     @classmethod
     def from_dict(cls, data: dict) -> "TemplateRule":
-        """Deserialize a rule from a plain dict (loaded from JSON cache)."""
+        """Deserialize a rule from a plain dict (loaded from JSON cache).
+
+        ``required`` defaults to False if absent from the cached payload,
+        for the same reason as the dataclass default above: an
+        unspecified requirement must never be silently upgraded to
+        mandatory.
+        """
         return cls(
             name=data["name"],
             keywords=list(data.get("keywords", [])),
-            required=bool(data.get("required", True)),
+            required=bool(data.get("required", False)),
             level=int(data.get("level", 1)),
             order=int(data.get("order", 0)),
             parent=data.get("parent"),
