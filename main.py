@@ -2,15 +2,22 @@
 """CLI entry point for the Confluence Validator Agent.
 
 Usage:
-    python main.py <page_id>
+    python main.py <page_id> [--refresh-template]
 
 If no page_id is supplied, ``TEMPLATE_PAGE_ID`` semantics do not apply here;
 the page id to validate must always be given explicitly (the template page
 id is a separate, dedicated setting used only to load validation rules).
+
+By default the template rule set is only re-parsed from the live
+Confluence template page when the on-disk cache is missing or older than
+``TEMPLATE_CACHE_TTL`` seconds. Pass ``--refresh-template`` to force a
+fresh fetch + re-parse right now, regardless of cache age (e.g. right
+after editing the template page).
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 
 from config.settings import get_settings
@@ -18,6 +25,24 @@ from core.orchestrator import Orchestrator
 from exceptions.api_errors import APIError
 from exceptions.validation_errors import TemplateLoadError
 from utils.logger import get_logger, setup_logging
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="main.py",
+        description="Validate a Confluence page against the analytical page template.",
+    )
+    parser.add_argument("page_id", help="Confluence content id of the page to validate")
+    parser.add_argument(
+        "--refresh-template",
+        action="store_true",
+        help=(
+            "Force a fresh fetch + re-parse of the Confluence template page "
+            "instead of using the cached rule set, even if the cache is "
+            "still fresh (TEMPLATE_CACHE_TTL)."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
@@ -33,16 +58,12 @@ def main(argv: list[str]) -> int:
     setup_logging(level=settings.logging.level, log_file=settings.logging.file)
     logger = get_logger(__name__)
 
-    if len(argv) < 1:
-        logger.error("Usage: python main.py <confluence_page_id>")
-        return 1
-
-    page_id = argv[0]
+    args = _parse_args(argv)
     orchestrator = Orchestrator(settings)
 
     try:
-        report = orchestrator.run(page_id)
-        logger.info("Validation pipeline finished successfully for page %s", page_id)
+        report = orchestrator.run(args.page_id, refresh_template=args.refresh_template)
+        logger.info("Validation pipeline finished successfully for page %s", args.page_id)
         print(report)
         return 0
     except TemplateLoadError as exc:
@@ -52,7 +73,7 @@ def main(argv: list[str]) -> int:
         logger.error("External API error: %s", exc, exc_info=True)
         return 1
     except Exception:  # noqa: BLE001 - top-level safety net, full stacktrace logged
-        logger.exception("Unhandled error while validating page %s", page_id)
+        logger.exception("Unhandled error while validating page %s", args.page_id)
         return 1
 
 
