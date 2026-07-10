@@ -114,6 +114,55 @@ class TemplateParserRequiredDefaultTests(unittest.TestCase):
         self.assertIn("Функциональные требования", names)
         self.assertIn("Диаграмма последовательности", names)
 
+    def test_shallow_numbered_but_deep_heading_level_is_not_a_rule(self) -> None:
+        """An example step that restarts its own numbering ("1.", "2." ...)
+        at a deep heading level (h3+) must still be excluded — shallow
+        numbers alone aren't enough of a signal once they collide with the
+        real N/N.M ids.
+        """
+        sections = [
+            Section(
+                header="6.5 Функционально требование ХХХ",
+                level=2,
+                content="Обязательный раздел",
+                raw_html="",
+            ),
+            Section(
+                header="1. Создание нового топика",
+                level=3,
+                content="Пример шага внутри примера.",
+                raw_html="",
+            ),
+        ]
+        rules = parse_template_sections(sections)
+        names = [r.name for r in rules]
+        self.assertIn("Функционально требование ХХХ", names)
+        self.assertNotIn("Создание нового топика", names)
+
+    def test_adjective_form_required_label_is_required(self) -> None:
+        """'Обязательный раздел' (adjective) must be recognized, not just
+        the adverb form 'обязательно'.
+        """
+        sections = [
+            Section(header="8. Метки", level=1, content="Обязательный раздел", raw_html="")
+        ]
+        rules = parse_template_sections(sections)
+        self.assertEqual(len(rules), 1)
+        self.assertTrue(rules[0].required)
+
+    def test_adjective_form_optional_label_is_optional(self) -> None:
+        sections = [
+            Section(
+                header="2. Связная документация",
+                level=1,
+                content="Опциональный раздел",
+                raw_html="",
+            )
+        ]
+        rules = parse_template_sections(sections)
+        self.assertEqual(len(rules), 1)
+        self.assertFalse(rules[0].required)
+
     def test_short_required_label_is_required(self) -> None:
         """Short badge-style label ('Обязательно' right after the heading,
         no surrounding phrase) must also be recognized.
