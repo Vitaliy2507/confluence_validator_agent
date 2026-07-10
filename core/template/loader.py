@@ -45,8 +45,14 @@ class TemplateLoader:
         self._page_id = template_page_id
         self._cache = JSONCache(cache_file, cache_ttl)
 
-    def load(self) -> list[TemplateRule]:
+    def load(self, force_refresh: bool = False) -> list[TemplateRule]:
         """Return the current template rule set, refreshing the cache if stale.
+
+        Args:
+            force_refresh: If True, skip the freshness check and always
+                re-fetch and re-parse the live template page, even if a
+                fresh cache entry exists. Still falls back to the stale
+                cache if the live fetch fails.
 
         Returns:
             List of :class:`TemplateRule` describing the mandatory/optional
@@ -56,7 +62,7 @@ class TemplateLoader:
             TemplateLoadError: If no cached rules exist and the live
                 template page cannot be fetched or parsed.
         """
-        if self._cache.is_fresh():
+        if not force_refresh and self._cache.is_fresh():
             logger.info("Using cached template rules (fresh).")
             cached = self._cache.load()
             if cached:
