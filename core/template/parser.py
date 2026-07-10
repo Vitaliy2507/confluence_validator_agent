@@ -5,6 +5,13 @@ The template page marks each section with a line such as "Требование �
 heading. This module derives the mandatory/optional rule set generically
 from that pattern, using only the sections already split out by
 ``parsers.html_parser``.
+
+Default policy: a section is only mandatory if the template page
+*explicitly* says so. Anything ambiguous (marker missing, misspelled,
+using different wording than expected) is treated as optional rather than
+mandatory — a false "optional" only produces a soft warning, while a
+false "mandatory" would fail real pages for reasons nobody could see
+coming. When in doubt, don't block.
 """
 
 from __future__ import annotations
@@ -13,6 +20,9 @@ import re
 
 from models.section import Section, TemplateRule
 from parsers.text_cleaner import normalize
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 _REQUIRED_PATTERN = re.compile(r"требование к ведению\s*-\s*обязательно")
 _OPTIONAL_PATTERN = re.compile(r"требование к ведению\s*-\s*опционально")
@@ -45,9 +55,12 @@ def parse_template_sections(sections: list[Section]) -> list[TemplateRule]:
             for the raw HTML of the Confluence template page.
 
     Returns:
-        List of :class:`TemplateRule`, in document order. Sections whose
-        content does not explicitly state "обязательно"/"опционально" are
-        skipped (they are not part of the graded checklist).
+        List of :class:`TemplateRule`, in document order. Every heading on
+        the template page becomes a rule; a section is marked ``required``
+        only when the page explicitly says "обязательно" for it. A
+        section explicitly marked "опционально", or with no marker at
+        all, becomes ``required=False`` — unmarked sections are never
+        upgraded to mandatory.
     """
     rules: list[TemplateRule] = []
     parent_by_level: dict[int, str] = {}
@@ -60,12 +73,18 @@ def parse_template_sections(sections: list[Section]) -> list[TemplateRule]:
         normalized_content = normalize(section.content)
         if _REQUIRED_PATTERN.search(normalized_content):
             required = True
-        elif _OPTIONAL_PATTERN.search(normalized_content):
-            required = False
         else:
-            # No explicit marker found for this heading; skip it rather
-            # than guessing, to avoid silently mis-grading the page.
-            continue
+            # Either explicitly "опционально", or no marker at all — both
+            # cases default to optional. We don't distinguish them here
+            # because an unrecognized marker should degrade safely, not
+            # silently become a hard requirement.
+            required = False
+            if not _OPTIONAL_PATTERN.search(normalized_content):
+                logger.debug(
+                    'No "обязательно/опционально" marker found for template '
+                    'section "%s"; defaulting to optional.',
+                    section.header.strip(),
+                )
 
         id_match = _ID_PATTERN.match(section.header.strip())
         section_id = id_match.group(1) if id_match else None
