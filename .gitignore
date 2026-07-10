@@ -1,0 +1,60 @@
+# --- Project-specific ---
+.env
+.gigacode
+.venv
+
+# --- Python bytecode / caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# --- Distribution / packaging ---
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# --- Virtual environments ---
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# --- Testing / coverage ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# --- Type checkers / linters ---
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# --- Logs and runtime artifacts ---
+*.log
+validator.log
+
+# --- Local template rules cache (regenerated at runtime) ---
+# Uncomment if you don't want the seeded default checked into the repo:
+# config/template_rules.json
+
+# --- Editors / IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- OS junk ---
+Thumbs.db
