@@ -47,6 +47,40 @@ class Orchestrator:
             user_prompt_template=settings.gigachat_user_prompt_template,
         )
 
+    def dump_template_rules(self, refresh_template: bool = False) -> str:
+        """Load the template rule set and render it as a readable table.
+
+        Pure inspection helper — makes no Confluence page request beyond
+        the template page itself, and posts no comment. Meant for
+        debugging what the template parser actually extracted, instead of
+        having to eyeball screenshots of the live template page.
+
+        Args:
+            refresh_template: If True, force a fresh fetch + re-parse
+                instead of using the cached rule set.
+
+        Returns:
+            A formatted, human-readable table of the current rule set.
+        """
+        rules = self._template_loader.load(force_refresh=refresh_template)
+        rules = sorted(rules, key=lambda r: r.order)
+
+        header = f"{'#':<4}{'req?':<6}{'lvl':<4}{'id/keywords':<28}{'name'}"
+        lines = [header, "-" * len(header)]
+        for rule in rules:
+            req = "ДА" if rule.required else "нет"
+            keywords_preview = ", ".join(rule.keywords[:3])
+            parent_suffix = f"  (parent: {rule.parent})" if rule.parent else ""
+            lines.append(
+                f"{rule.order:<4}{req:<6}{rule.level:<4}{keywords_preview:<28}"
+                f"{rule.name}{parent_suffix}"
+            )
+        lines.append("")
+        lines.append(f"Всего правил: {len(rules)}")
+        lines.append(f"Обязательных: {sum(1 for r in rules if r.required)}")
+        lines.append(f"Опциональных: {sum(1 for r in rules if not r.required)}")
+        return "\n".join(lines)
+
     def run(self, page_id: str, refresh_template: bool = False) -> str:
         """Run the full pipeline for a single Confluence page.
 
