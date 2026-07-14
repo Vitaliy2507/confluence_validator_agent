@@ -55,6 +55,12 @@ class Orchestrator:
         debugging what the template parser actually extracted, instead of
         having to eyeball screenshots of the live template page.
 
+        The output always states plainly whether the rules shown were
+        just parsed from the live page, came from a still-fresh on-disk
+        cache, or are a stale fallback because the live parse found
+        nothing — so this table is never mistaken for a live result when
+        it secretly isn't one.
+
         Args:
             refresh_template: If True, force a fresh fetch + re-parse
                 instead of using the cached rule set.
@@ -62,11 +68,26 @@ class Orchestrator:
         Returns:
             A formatted, human-readable table of the current rule set.
         """
-        rules = self._template_loader.load(force_refresh=refresh_template)
+        rules, source = self._template_loader.load_with_source(force_refresh=refresh_template)
         rules = sorted(rules, key=lambda r: r.order)
 
+        source_banner = {
+            "live": "✅ Правила только что распарсены с живой страницы-шаблона.",
+            "cache_fresh": (
+                "ℹ️  Показан свежий кэш (моложе TEMPLATE_CACHE_TTL), страница-шаблон "
+                "не запрашивалась. Используйте --refresh-template для живого парсинга."
+            ),
+            "stale_cache_fallback": (
+                "⚠️  ВНИМАНИЕ: страница-шаблон получена, но парсер не нашёл в ней ни "
+                "одного правила (см. лог выше) — показан СТАРЫЙ закэшированный набор, "
+                "он может не соответствовать реальной странице. Запустите "
+                "--dump-template-sections, чтобы увидеть, что реально распознал HTML-"
+                "парсер на живой странице."
+            ),
+        }[source]
+
         header = f"{'#':<4}{'req?':<6}{'lvl':<4}{'id/keywords':<28}{'name'}"
-        lines = [header, "-" * len(header)]
+        lines = [source_banner, "", header, "-" * len(header)]
         for rule in rules:
             req = "ДА" if rule.required else "нет"
             keywords_preview = ", ".join(rule.keywords[:3])
@@ -79,6 +100,55 @@ class Orchestrator:
         lines.append(f"Всего правил: {len(rules)}")
         lines.append(f"Обязательных: {sum(1 for r in rules if r.required)}")
         lines.append(f"Опциональных: {sum(1 for r in rules if not r.required)}")
+        return "\n".join(lines)
+
+    def dump_template_sections(self) -> str:
+        """Fetch the live template page and dump the RAW sections found by
+        ``parsers.html_parser.parse_sections`` — no template-rule filtering
+        applied at all.
+
+        This is the ground-truth diagnostic: it shows exactly which
+        headings the HTML parser detected on the real page, at what
+        heading level, and a preview of their content, with none of
+        ``core.template.parser``'s numbering/level/marker logic in the
+        way. Use this when ``dump_template_rules`` reports zero live
+        rules, to see whether the page has no real ``<h1>``-``<h6>`` tags
+        at all (e.g. headings implemented as styled paragraphs) or
+        whether the headings exist but simply don't pass the rule
+        filters, and to read the exact heading text/levels for tuning
+        ``core/template/parser.py``.
+
+        Returns:
+            A formatted, human-readable listing of every section found.
+
+        Raises:
+            ConfluenceAPIError: If the template page cannot be fetched.
+        """
+        page = self._confluence.get_page(self._settings.template.page_id)
+        sections = parse_sections(page.raw_html)
+
+        lines = [
+            f"Страница: '{page.title}' (id={page.page_id})",
+            f"Найдено секций (parse_sections, БЕЗ фильтрации правилами): {len(sections)}",
+            "",
+        ]
+        if not any(section.level for section in sections):
+            lines.append(
+                "⚠️  Ни одного реального заголовка <h1>-<h6> не найдено — весь "
+                "raw HTML страницы попал в одну безымянную преамбулу. Значит "
+                "заголовки на странице оформлены не тегами <h1>-<h6> (например, "
+                "жирным текстом в параграфе), и html_parser их в принципе не "
+                "может увидеть. Ниже — то немногое, что удалось извлечь; "
+                "смотрите поле content, чтобы понять реальную разметку."
+            )
+
+        for i, section in enumerate(sections, 1):
+            preview = " ".join(section.content.split())[:150]
+            level_label = f"h{section.level}" if section.level else "(без заголовка, преамбула)"
+            lines.append(f"{i:<4} {level_label:<28} header={section.header!r}")
+            lines.append(f"     content: {preview!r}")
+            lines.append("")
+
         return "\n".join(lines)
 
     def run(self, page_id: str, refresh_template: bool = False) -> str:
