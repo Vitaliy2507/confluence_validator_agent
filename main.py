@@ -4,6 +4,7 @@
 Usage:
     python main.py <page_id> [--refresh-template]
     python main.py --dump-template-rules [--refresh-template]
+    python main.py --dump-template-sections
 
 If no page_id is supplied, ``TEMPLATE_PAGE_ID`` semantics do not apply here;
 the page id to validate must always be given explicitly (the template page
@@ -17,9 +18,16 @@ after editing the template page).
 
 Use ``--dump-template-rules`` to inspect exactly what the template parser
 extracted (name, required/optional, level, parent) as a plain-text table,
-without validating any page or posting a comment — the fastest way to
-check whether a template-parsing fix actually worked, instead of
-eyeballing screenshots of the live template page.
+without validating any page or posting a comment. The output always says
+plainly whether it's showing a live parse, a fresh cache, or a stale
+fallback — so it's never mistaken for a live result when it secretly
+isn't one.
+
+Use ``--dump-template-sections`` when ``--dump-template-rules`` reports
+zero live rules, to see the raw, unfiltered sections the HTML parser
+found on the live template page (heading text, level, content preview) —
+the ground truth for diagnosing why the rule-level filters rejected
+everything (or whether the page even has real heading tags at all).
 """
 
 from __future__ import annotations
@@ -45,7 +53,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help=(
             "Confluence content id of the page to validate. Not required "
-            "when using --dump-template-rules."
+            "when using --dump-template-rules or --dump-template-sections."
         ),
     )
     parser.add_argument(
@@ -66,11 +74,22 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "comment — pure inspection of what the template parser sees."
         ),
     )
+    parser.add_argument(
+        "--dump-template-sections",
+        action="store_true",
+        help=(
+            "Print the RAW sections the HTML parser found on the live "
+            "template page (heading, level, content preview), with none "
+            "of the template-rule filtering applied. Use this when "
+            "--dump-template-rules reports zero live rules, to see "
+            "exactly what the parser is and isn't detecting."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
-    """Run the validator agent for a single page id, or dump template rules.
+    """Run the validator agent for a single page id, or dump template info.
 
     Args:
         argv: Command-line arguments (excluding the program name).
@@ -95,6 +114,15 @@ def main(argv: list[str]) -> int:
 
     orchestrator = Orchestrator(settings)
 
+    if args.dump_template_sections:
+        try:
+            table = orchestrator.dump_template_sections()
+            print(table)
+            return 0
+        except APIError as exc:
+            logger.error("External API error: %s", exc, exc_info=True)
+            return 1
+
     if args.dump_template_rules:
         try:
             table = orchestrator.dump_template_rules(refresh_template=args.refresh_template)
@@ -109,8 +137,9 @@ def main(argv: list[str]) -> int:
 
     if not args.page_id:
         logger.error(
-            "page_id is required unless --dump-template-rules is used. "
-            "Usage: python main.py <confluence_page_id>"
+            "page_id is required unless --dump-template-rules or "
+            "--dump-template-sections is used. Usage: python main.py "
+            "<confluence_page_id>"
         )
         return 1
 
