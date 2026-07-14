@@ -169,6 +169,37 @@ def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
 
+def validate_settings(settings: Settings) -> list[str]:
+    """Check that the settings needed to run the agent are actually present.
+
+    Confluence connectivity is required for every code path (even
+    ``--dump-template-rules`` needs to fetch the template page), so this
+    is checked unconditionally. GigaChat credentials are intentionally
+    NOT checked here: they're only needed once validation of an actual
+    page succeeds, and :class:`clients.gigachat_auth.GigaChatTokenManager`
+    already raises a clear ``GigaChatAuthError`` if they're missing at
+    that point — duplicating the check here would just add noise for
+    ``--dump-template-rules`` runs that never touch GigaChat at all.
+
+    Args:
+        settings: Settings built by :func:`get_settings`.
+
+    Returns:
+        A list of human-readable problem descriptions. Empty means the
+        settings are usable.
+    """
+    problems: list[str] = []
+    if not settings.confluence.url:
+        problems.append("CONFLUENCE_URL is not set")
+    if not settings.confluence.token:
+        problems.append("CONFLUENCE_TOKEN is not set")
+    if not settings.confluence.user:
+        problems.append("CONFLUENCE_USER is not set")
+    if not settings.template.page_id:
+        problems.append("TEMPLATE_PAGE_ID is not set")
+    return problems
+
+
 def get_settings() -> Settings:
     """Build a :class:`Settings` instance from the current environment.
 
