@@ -27,7 +27,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from config.settings import get_settings
+from config.settings import get_settings, validate_settings
 from core.orchestrator import Orchestrator
 from exceptions.api_errors import APIError
 from exceptions.validation_errors import TemplateLoadError
@@ -83,6 +83,16 @@ def main(argv: list[str]) -> int:
     logger = get_logger(__name__)
 
     args = _parse_args(argv)
+
+    problems = validate_settings(settings)
+    if problems:
+        for problem in problems:
+            logger.error("Missing configuration: %s", problem)
+        logger.error(
+            "Fix the values above in your .env file (see .env.example), then try again."
+        )
+        return 1
+
     orchestrator = Orchestrator(settings)
 
     if args.dump_template_rules:
