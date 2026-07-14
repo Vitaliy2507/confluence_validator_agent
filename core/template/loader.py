@@ -62,18 +62,41 @@ class TemplateLoader:
             TemplateLoadError: If no cached rules exist and the live
                 template page cannot be fetched or parsed.
         """
+        rules, _source = self.load_with_source(force_refresh=force_refresh)
+        return rules
+
+    def load_with_source(
+        self, force_refresh: bool = False
+    ) -> tuple[list[TemplateRule], str]:
+        """Same as :meth:`load`, but also reports where the rules came from.
+
+        Args:
+            force_refresh: If True, skip the freshness check and always
+                re-fetch and re-parse the live template page.
+
+        Returns:
+            A ``(rules, source)`` tuple. ``source`` is one of:
+            ``"cache_fresh"`` (used the on-disk cache, still within TTL),
+            ``"live"`` (freshly fetched and parsed from Confluence just
+            now), or ``"stale_cache_fallback"`` (the live fetch/parse
+            failed or found nothing, so an old cache entry was reused).
+
+        Raises:
+            TemplateLoadError: If no cached rules exist and the live
+                template page cannot be fetched or parsed.
+        """
         if not force_refresh and self._cache.is_fresh():
-            logger.info("Using cached template rules (fresh).")
             cached = self._cache.load()
             if cached:
-                return [TemplateRule.from_dict(r) for r in cached]
+                logger.info("Using cached template rules (fresh).")
+                return [TemplateRule.from_dict(r) for r in cached], "cache_fresh"
 
         try:
             rules = self._fetch_and_parse()
             if rules:
                 self._cache.save([r.to_dict() for r in rules])
                 logger.info("Refreshed template rules from Confluence (%d rules).", len(rules))
-                return rules
+                return rules, "live"
             logger.warning("Live template page yielded no rules; falling back to cache.")
         except ConfluenceAPIError as exc:
             logger.warning("Could not refresh template from Confluence: %s", exc)
@@ -81,7 +104,7 @@ class TemplateLoader:
         stale = self._cache.load()
         if stale:
             logger.info("Using stale cached template rules as fallback.")
-            return [TemplateRule.from_dict(r) for r in stale]
+            return [TemplateRule.from_dict(r) for r in stale], "stale_cache_fallback"
 
         raise TemplateLoadError(
             "No template rules available: Confluence fetch failed and no cache exists."
