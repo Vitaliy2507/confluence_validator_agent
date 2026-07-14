@@ -85,6 +85,43 @@ class TemplateLoaderTests(unittest.TestCase):
             "a TTL of 0 means the cache is immediately stale on the next call",
         )
 
+    def test_load_with_source_reports_live_on_first_successful_parse(self) -> None:
+        loader = self._make_loader(ttl=86400)
+        rules, source = loader.load_with_source()
+        self.assertEqual(source, "live")
+        self.assertTrue(rules)
+
+    def test_load_with_source_reports_cache_fresh_on_second_call(self) -> None:
+        loader = self._make_loader(ttl=86400)
+        loader.load_with_source()
+        rules, source = loader.load_with_source()
+        self.assertEqual(source, "cache_fresh")
+        self.assertTrue(rules)
+
+    def test_load_with_source_reports_stale_cache_fallback_when_live_parse_is_empty(
+        self,
+    ) -> None:
+        loader = self._make_loader(ttl=86400)
+        # Prime the cache with a real result first.
+        loader.load_with_source()
+
+        # Now simulate a template page with no recognizable headings at all
+        # (e.g. headings implemented as styled paragraphs, not <h1>-<h6>).
+        empty_page = Page(page_id="999", title="Шаблон", raw_html="<p>ничего</p>", version=2)
+        self.client.get_page.return_value = empty_page
+
+        rules, source = loader.load_with_source(force_refresh=True)
+        self.assertEqual(source, "stale_cache_fallback")
+        self.assertTrue(rules)  # falls back to the previously cached rules
+
+    def test_load_with_source_raises_when_nothing_available_at_all(self) -> None:
+        loader = self._make_loader(ttl=86400)
+        empty_page = Page(page_id="999", title="Шаблон", raw_html="<p>ничего</p>", version=1)
+        self.client.get_page.return_value = empty_page
+
+        with self.assertRaises(Exception):
+            loader.load_with_source()
+
 
 if __name__ == "__main__":
     unittest.main()
